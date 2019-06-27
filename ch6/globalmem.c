@@ -13,9 +13,12 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
-#define GLOBALMEM_SIZE	0x1000
+#define GLOBALMEM_SIZE	0x31C6A0
 #define MEM_CLEAR 0x1
 #define GLOBALMEM_MAJOR 230
+#define DEVICE_NUM 10
+
+static unsigned int sum=0;
 
 static int globalmem_major = GLOBALMEM_MAJOR;
 module_param(globalmem_major, int, S_IRUGO);
@@ -29,7 +32,8 @@ struct globalmem_dev *globalmem_devp;
 
 static int globalmem_open(struct inode *inode, struct file *filp)
 {
-	filp->private_data = globalmem_devp;
+	struct globalmem_dev *dev = container_of(inode->i_cdev, struct globalmem_dev, cdev);
+	filp->private_data = dev;
 	return 0;
 }
 
@@ -89,20 +93,19 @@ static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 	int ret = 0;
 	struct globalmem_dev *dev = filp->private_data;
 
+	sum+=size;
+
 	if (p >= GLOBALMEM_SIZE)
 		return 0;
 	if (count > GLOBALMEM_SIZE - p)
 		count = GLOBALMEM_SIZE - p;
-
 	if (copy_from_user(dev->mem + p, buf, count))
 		ret = -EFAULT;
 	else {
 		*ppos += count;
 		ret = count;
-
-		printk(KERN_INFO "written %u bytes(s) from %lu\n", count, p);
+	// printk("共传输 %lu bit\n",sum);
 	}
-
 	return ret;
 }
 
@@ -138,6 +141,7 @@ static loff_t globalmem_llseek(struct file *filp, loff_t offset, int orig)
 		ret = -EINVAL;
 		break;
 	}
+	printk("地址 %lu \n",ret);
 	return ret;
 }
 
@@ -165,6 +169,7 @@ static void globalmem_setup_cdev(struct globalmem_dev *dev, int index)
 static int __init globalmem_init(void)
 {
 	int ret;
+	int i;
 	dev_t devno = MKDEV(globalmem_major, 0);
 
 	if (globalmem_major)
@@ -182,18 +187,21 @@ static int __init globalmem_init(void)
 		goto fail_malloc;
 	}
 
-	globalmem_setup_cdev(globalmem_devp, 0);
+	for(i=0;i<DEVICE_NUM;i++)
+		globalmem_setup_cdev(globalmem_devp+i, i);
 	return 0;
 
  fail_malloc:
-	unregister_chrdev_region(devno, 1);
+	unregister_chrdev_region(devno, DEVICE_NUM);
 	return ret;
 }
 module_init(globalmem_init);
 
 static void __exit globalmem_exit(void)
 {
-	cdev_del(&globalmem_devp->cdev);
+	int i;
+	for(i=0;i<DEVICE_NUM;i++)
+	cdev_del(&(globalmem_devp+i)->cdev);
 	kfree(globalmem_devp);
 	unregister_chrdev_region(MKDEV(globalmem_major, 0), 1);
 }

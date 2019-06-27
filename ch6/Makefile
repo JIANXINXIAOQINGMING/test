@@ -1,16 +1,15 @@
-KVERS = $(shell uname -r)
 
-# Kernel modules
-obj-m += globalmem.o
-obj-m += multi_globalmem.o
+KERNEL_SRC_DIR  ?= /home/lxl/vkbs/vkbs_source/GPL/linux/
 
-# Specify flags for the module compilation.
-#EXTRA_CFLAGS=-g -O0
 
-build: kernel_modules
+ARCH?=arm
+CROSS_COMPILE  ?= arm-linux-gnueabihf-
 
-kernel_modules:
-	make -C /lib/modules/$(KVERS)/build M=$(CURDIR) modules
+
+obj-m := globalmem.o
+
+all:
+	make -C $(KERNEL_SRC_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) M=$(PWD) modules
 
 clean:
-	make -C /lib/modules/$(KVERS)/build M=$(CURDIR) clean
+	make -C $(KERNEL_SRC_DIR) ARCH=$(ARCH) CROSS_COMPILE=$(CROSS_COMPILE) M=$(PWD) clean
