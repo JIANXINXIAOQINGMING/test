@@ -18,7 +18,6 @@
 #define GLOBALMEM_MAJOR 230
 #define DEVICE_NUM 10
 
-static unsigned int sum=0;
 
 static int globalmem_major = GLOBALMEM_MAJOR;
 module_param(globalmem_major, int, S_IRUGO);
@@ -27,6 +26,10 @@ struct globalmem_dev {
 	struct cdev cdev;
 	unsigned char mem[GLOBALMEM_SIZE];
 };
+
+
+
+
 
 struct globalmem_dev *globalmem_devp;
 
@@ -56,7 +59,6 @@ static long globalmem_ioctl(struct file *filp, unsigned int cmd,
 	default:
 		return -EINVAL;
 	}
-
 	return 0;
 }
 
@@ -93,8 +95,8 @@ static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 	int ret = 0;
 	struct globalmem_dev *dev = filp->private_data;
 
-	sum+=size;
 
+	printk("add  %pad\n",&(dev->mem));
 	if (p >= GLOBALMEM_SIZE)
 		return 0;
 	if (count > GLOBALMEM_SIZE - p)
@@ -104,7 +106,6 @@ static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 	else {
 		*ppos += count;
 		ret = count;
-	// printk("共传输 %lu bit\n",sum);
 	}
 	return ret;
 }
@@ -141,7 +142,6 @@ static loff_t globalmem_llseek(struct file *filp, loff_t offset, int orig)
 		ret = -EINVAL;
 		break;
 	}
-	printk("地址 %lu \n",ret);
 	return ret;
 }
 
@@ -158,7 +158,6 @@ static const struct file_operations globalmem_fops = {
 static void globalmem_setup_cdev(struct globalmem_dev *dev, int index)
 {
 	int err, devno = MKDEV(globalmem_major, index);
-
 	cdev_init(&dev->cdev, &globalmem_fops);
 	dev->cdev.owner = THIS_MODULE;
 	err = cdev_add(&dev->cdev, devno, 1);
@@ -186,7 +185,6 @@ static int __init globalmem_init(void)
 		ret = -ENOMEM;
 		goto fail_malloc;
 	}
-
 	for(i=0;i<DEVICE_NUM;i++)
 		globalmem_setup_cdev(globalmem_devp+i, i);
 	return 0;

@@ -1,0 +1,1 @@
+cmd_/home/lxl/bit/ch6/globalmem.ko := arm-linux-gnueabihf-ld -EL -r  -T ./scripts/module-common.lds --build-id  -o /home/lxl/bit/ch6/globalmem.ko /home/lxl/bit/ch6/globalmem.o /home/lxl/bit/ch6/globalmem.mod.o ;  true
