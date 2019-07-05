@@ -12,12 +12,17 @@
 #include <linux/cdev.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
+#include<linux/io.h>
 
-#define GLOBALMEM_SIZE	0x31C6A0
-#define MEM_CLEAR 0x1
-#define GLOBALMEM_MAJOR 230
-#define DEVICE_NUM 10
-
+#define GLOBALMEM_SIZE	0x2DD000		//0x31C6A0
+#define GLOBALMEM_MAGIC 'globe'			//设备识别码
+#define MEM_CLEAR _IO(GLOBALMEM_MAGIC,0)	//生成特殊的设备码
+#define GLOBALMEM_MAJOR 230			//主要设备号
+#define DEVICE_NUM 10	//最多支持设备数
+#define GLOBA_ADDR 0x400000C4		//存放物理地址的地址
+#define GLOBA_SIZE 0x400000C8		//存放长度
+// #define barrier() _asm_ _volatile_("":::"memory")
+static void *p_gpj0_base;
 
 static int globalmem_major = GLOBALMEM_MAJOR;
 module_param(globalmem_major, int, S_IRUGO);
@@ -25,11 +30,8 @@ module_param(globalmem_major, int, S_IRUGO);
 struct globalmem_dev {
 	struct cdev cdev;
 	unsigned char mem[GLOBALMEM_SIZE];
+	// struct mutex mutex;
 };
-
-
-
-
 
 struct globalmem_dev *globalmem_devp;
 
@@ -52,10 +54,11 @@ static long globalmem_ioctl(struct file *filp, unsigned int cmd,
 
 	switch (cmd) {
 	case MEM_CLEAR:
+		// mutex_lock(&dev->mutex);
 		memset(dev->mem, 0, GLOBALMEM_SIZE);
+		// mutex_unlock(&dev->mutex);
 		printk(KERN_INFO "globalmem is set to zero\n");
 		break;
-
 	default:
 		return -EINVAL;
 	}
@@ -74,39 +77,61 @@ static ssize_t globalmem_read(struct file *filp, char __user * buf, size_t size,
 		return 0;
 	if (count > GLOBALMEM_SIZE - p)
 		count = GLOBALMEM_SIZE - p;
-
+	// mutex_lock(&dev->mutex);
 	if (copy_to_user(buf, dev->mem + p, count)) {
 		ret = -EFAULT;
 	} else {
 		*ppos += count;
 		ret = count;
-
-		printk(KERN_INFO "read %u bytes(s) from %lu\n", count, p);
 	}
-
+	// mutex_unlock(&dev->mutex);
 	return ret;
 }
+
 
 static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 			       size_t size, loff_t * ppos)
 {
-	unsigned long p = *ppos;
+	volatile unsigned long p = *ppos;
 	unsigned int count = size;
+	u32 phys;
 	int ret = 0;
 	struct globalmem_dev *dev = filp->private_data;
 
-
-	printk("add  %pad\n",&(dev->mem));
+	if(*ppos==count)
+	{
+		// printk("addr  %X\n",dev->mem);
+		phys=virt_to_phys(dev->mem);
+		// printk("phys addr 0x%X\n",phys);
+		if (!request_mem_region(GLOBA_ADDR, 8, "addr")){
+        	return -EINVAL;
+		}
+		p_gpj0_base = ioremap(GLOBA_ADDR, 8);
+		writel(phys, p_gpj0_base + 0);
+		iounmap(p_gpj0_base);
+		release_mem_region(GLOBA_ADDR, 8);
+		// wirtel(pyhs,0x40000040);
+	}
 	if (p >= GLOBALMEM_SIZE)
 		return 0;
 	if (count > GLOBALMEM_SIZE - p)
 		count = GLOBALMEM_SIZE - p;
+	// mutex_lock(&dev->mutex);
 	if (copy_from_user(dev->mem + p, buf, count))
 		ret = -EFAULT;
 	else {
 		*ppos += count;
 		ret = count;
 	}
+	if (!request_mem_region(GLOBA_SIZE, 8, "addr")){
+        return -EINVAL;
+		}
+	p_gpj0_base = ioremap(GLOBA_SIZE, 8);
+	writel(*ppos, p_gpj0_base + 0);
+	iounmap(p_gpj0_base);
+	release_mem_region(GLOBA_SIZE, 8);
+	// mutex_unlock(&dev->mutex);
+	printk(KERN_DEBUG "p=%p ppos=%d\n",p,*ppos);
 	return ret;
 }
 
@@ -185,6 +210,7 @@ static int __init globalmem_init(void)
 		ret = -ENOMEM;
 		goto fail_malloc;
 	}
+	// mutex_init(&globalmem_dev->mutex);
 	for(i=0;i<DEVICE_NUM;i++)
 		globalmem_setup_cdev(globalmem_devp+i, i);
 	return 0;

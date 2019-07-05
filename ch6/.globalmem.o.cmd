@@ -694,6 +694,24 @@ deps_/home/lxl/bit/ch6/globalmem.o := \
     $(wildcard include/config/cpu/cp15/mmu.h) \
   arch/arm/include/generated/asm/extable.h \
   include/asm-generic/extable.h \
+  include/linux/io.h \
+    $(wildcard include/config/have/arch/huge/vmap.h) \
+    $(wildcard include/config/has/ioport/map.h) \
+    $(wildcard include/config/pci.h) \
+  arch/arm/include/asm/io.h \
+    $(wildcard include/config/need/mach/io/h.h) \
+    $(wildcard include/config/pcmcia/soc/common.h) \
+    $(wildcard include/config/isa.h) \
+    $(wildcard include/config/pccard.h) \
+  include/asm-generic/pci_iomap.h \
+    $(wildcard include/config/no/generic/pci/ioport/map.h) \
+    $(wildcard include/config/generic/pci/iomap.h) \
+  include/xen/xen.h \
+    $(wildcard include/config/xen/pvh.h) \
+    $(wildcard include/config/xen/dom0.h) \
+  include/asm-generic/io.h \
+    $(wildcard include/config/generic/iomap.h) \
+    $(wildcard include/config/virt/to/bus.h) \
 
 /home/lxl/bit/ch6/globalmem.o: $(deps_/home/lxl/bit/ch6/globalmem.o)
 
