@@ -18,9 +18,9 @@
 #define GLOBALMEM_MAGIC 'globe'			//设备识别码
 #define MEM_CLEAR _IO(GLOBALMEM_MAGIC,0)	//生成特殊的设备码
 #define GLOBALMEM_MAJOR 230			//主要设备号
-#define DEVICE_NUM 10	//最多支持设备数
-#define GLOBA_ADDR 0x400000C4		//存放物理地址的地址
-#define GLOBA_SIZE 0x400000C8		//存放长度
+#define DEVICE_NUM 4	//最多支持设备数
+unsigned int GLOBA_ADDR0[4]={0x400000C4,0x400000D4,0x40000400,0x40000408};		//存放物理地址的地址
+#define GLOBA_SIZE0 0x400000C8		//存放长度
 // #define barrier() _asm_ _volatile_("":::"memory")
 static void *p_gpj0_base;
 
@@ -97,21 +97,6 @@ static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 	u32 phys;
 	int ret = 0;
 	struct globalmem_dev *dev = filp->private_data;
-
-	if(*ppos==count)
-	{
-		// printk("addr  %X\n",dev->mem);
-		phys=virt_to_phys(dev->mem);
-		// printk("phys addr 0x%X\n",phys);
-		if (!request_mem_region(GLOBA_ADDR, 8, "addr")){
-        	return -EINVAL;
-		}
-		p_gpj0_base = ioremap(GLOBA_ADDR, 8);
-		writel(phys, p_gpj0_base + 0);
-		iounmap(p_gpj0_base);
-		release_mem_region(GLOBA_ADDR, 8);
-		// wirtel(pyhs,0x40000040);
-	}
 	if (p >= GLOBALMEM_SIZE)
 		return 0;
 	if (count > GLOBALMEM_SIZE - p)
@@ -123,15 +108,17 @@ static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 		*ppos += count;
 		ret = count;
 	}
-	if (!request_mem_region(GLOBA_SIZE, 8, "addr")){
+
+	if (!request_mem_region(GLOBA_SIZE0, 8, "addr")){
         return -EINVAL;
 		}
-	p_gpj0_base = ioremap(GLOBA_SIZE, 8);
+	p_gpj0_base = ioremap(GLOBA_SIZE0, 8);
 	writel(*ppos, p_gpj0_base + 0);
 	iounmap(p_gpj0_base);
-	release_mem_region(GLOBA_SIZE, 8);
+	release_mem_region(GLOBA_SIZE0, 8);
 	// mutex_unlock(&dev->mutex);
 	printk(KERN_DEBUG "p=%p ppos=%d\n",p,*ppos);
+
 	return ret;
 }
 
@@ -158,7 +145,7 @@ static loff_t globalmem_llseek(struct file *filp, loff_t offset, int orig)
 		}
 		if ((filp->f_pos + offset) < 0) {
 			ret = -EINVAL;
-			break;
+			break;	// mutex_init(&globalmem_dev->mutex);
 		}
 		filp->f_pos += offset;
 		ret = filp->f_pos;
@@ -182,12 +169,23 @@ static const struct file_operations globalmem_fops = {
 
 static void globalmem_setup_cdev(struct globalmem_dev *dev, int index)
 {
+	u32 phys;
+
 	int err, devno = MKDEV(globalmem_major, index);
 	cdev_init(&dev->cdev, &globalmem_fops);
 	dev->cdev.owner = THIS_MODULE;
 	err = cdev_add(&dev->cdev, devno, 1);
 	if (err)
 		printk(KERN_NOTICE "Error %d adding globalmem%d", err, index);
+	phys=virt_to_phys(dev->mem);		//虚拟地址转化为物理地址
+	printk("phys addr 0x%X\n",phys);
+	if (!request_mem_region(GLOBA_ADDR0[index], 8, "addr")){
+       	return -EINVAL;									//申请寄存器控制
+	}
+	p_gpj0_base = ioremap(GLOBA_ADDR0[index], 8);           //获得寄存器虚拟地址
+	writel(phys, p_gpj0_base + 0);					//写寄存器
+	iounmap(p_gpj0_base);							//关闭mmap
+	release_mem_region(GLOBA_ADDR0[index], 8);
 }
 
 static int __init globalmem_init(void)
@@ -231,5 +229,8 @@ static void __exit globalmem_exit(void)
 }
 module_exit(globalmem_exit);
 
-MODULE_AUTHOR("Barry Song <baohua@kernel.org>");
-MODULE_LICENSE("GPL v2");
+MODULE_AUTHOR("lxl");
+MODULE_LICENSE("Proprietary");
+MODULE_VERSION("1.0");
+MODULE_ALIAS("RAU-r");
+// MODULE_DEVICE_TABLE("vavitel-RAU");

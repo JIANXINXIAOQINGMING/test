@@ -47,3 +47,5 @@ __used
 __attribute__((section(".modinfo"))) =
 "depends=";
 
+
+MODULE_INFO(srcversion, "8145574CAC2CE16A5DD56EB");
