@@ -14,18 +14,20 @@
 #include <linux/uaccess.h>
 #include<linux/io.h>
 
-#define GLOBALMEM_SIZE	0x2DD000		//0x31C6A0
-#define GLOBALMEM_MAGIC 'globe'			//设备识别码
-#define MEM_CLEAR _IO(GLOBALMEM_MAGIC,0)	//生成特殊的设备码
-#define GLOBALMEM_MAJOR 230			//主要设备号
-#define DEVICE_NUM 4	//最多支持设备数
-unsigned int GLOBA_ADDR0[4]={0x400000C4,0x400000D4,0x40000400,0x40000408};		//存放物理地址的地址
-#define GLOBA_SIZE0 0x400000C8		//存放长度
+#define GLOBALMEM_SIZE 0x2DD000
+#define GLOBALMEM_MAGIC 'globe'
+#define MEM_CLEAR _IO(GLOBALMEM_MAGIC,0)
+#define GLOBALMEM_MAJOR 230
+#define DEVICE_NUM 2
+#define GLOBA_ADDR0 0x400000C4
+#define GLOBA_OFFSET 0x10
+#define GLOBA_SIZE0 0x400000C8
 // #define barrier() _asm_ _volatile_("":::"memory")
-static void *p_gpj0_base;
 
 static int globalmem_major = GLOBALMEM_MAJOR;
 module_param(globalmem_major, int, S_IRUGO);
+
+volatile u32 phys_bash[4];
 
 struct globalmem_dev {
 	struct cdev cdev;
@@ -33,7 +35,7 @@ struct globalmem_dev {
 	// struct mutex mutex;
 };
 
-struct globalmem_dev *globalmem_devp;
+struct globalmem_dev *globalmem_devp[4];
 
 static int globalmem_open(struct inode *inode, struct file *filp)
 {
@@ -94,7 +96,9 @@ static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 {
 	volatile unsigned long p = *ppos;
 	unsigned int count = size;
-	u32 phys;
+	volatile static void *write_base;
+	volatile u32 phys;
+	volatile int k=0;
 	int ret = 0;
 	struct globalmem_dev *dev = filp->private_data;
 	if (p >= GLOBALMEM_SIZE)
@@ -109,13 +113,15 @@ static ssize_t globalmem_write(struct file *filp, const char __user * buf,
 		ret = count;
 	}
 
-	if (!request_mem_region(GLOBA_SIZE0, 8, "addr")){
+	phys=virt_to_phys(dev->mem);
+	for(;phys_bash[k]!=phys;k++);
+	if (!request_mem_region((GLOBA_SIZE0+k*GLOBA_OFFSET), 8, "addr")){
         return -EINVAL;
 		}
-	p_gpj0_base = ioremap(GLOBA_SIZE0, 8);
-	writel(*ppos, p_gpj0_base + 0);
-	iounmap(p_gpj0_base);
-	release_mem_region(GLOBA_SIZE0, 8);
+	write_base = ioremap((GLOBA_SIZE0+k*GLOBA_OFFSET), 8);
+	writel(*ppos, write_base + 0);
+	iounmap(write_base);
+	release_mem_region((GLOBA_SIZE0+k*GLOBA_OFFSET), 8);
 	// mutex_unlock(&dev->mutex);
 	printk(KERN_DEBUG "p=%p ppos=%d\n",p,*ppos);
 
@@ -169,23 +175,24 @@ static const struct file_operations globalmem_fops = {
 
 static void globalmem_setup_cdev(struct globalmem_dev *dev, int index)
 {
-	u32 phys;
-
+	volatile static void *globa_base;
+	volatile u32 phys;
 	int err, devno = MKDEV(globalmem_major, index);
 	cdev_init(&dev->cdev, &globalmem_fops);
 	dev->cdev.owner = THIS_MODULE;
 	err = cdev_add(&dev->cdev, devno, 1);
 	if (err)
 		printk(KERN_NOTICE "Error %d adding globalmem%d", err, index);
-	phys=virt_to_phys(dev->mem);		//虚拟地址转化为物理地址
-	printk("phys addr 0x%X\n",phys);
-	if (!request_mem_region(GLOBA_ADDR0[index], 8, "addr")){
-       	return -EINVAL;									//申请寄存器控制
+
+	phys=virt_to_phys(dev->mem);
+	phys_bash[index]=phys;
+	if (!request_mem_region((GLOBA_ADDR0+index*GLOBA_OFFSET), 8, "addr")){
+       	return -EINVAL;									
 	}
-	p_gpj0_base = ioremap(GLOBA_ADDR0[index], 8);           //获得寄存器虚拟地址
-	writel(phys, p_gpj0_base + 0);					//写寄存器
-	iounmap(p_gpj0_base);							//关闭mmap
-	release_mem_region(GLOBA_ADDR0[index], 8);
+	globa_base = ioremap((GLOBA_ADDR0+index*GLOBA_OFFSET), 8);          
+	writel(phys, globa_base + 0);					
+	iounmap(globa_base);							
+	release_mem_region((GLOBA_ADDR0+index*GLOBA_OFFSET), 8);
 }
 
 static int __init globalmem_init(void)
@@ -202,15 +209,22 @@ static int __init globalmem_init(void)
 	}
 	if (ret < 0)
 		return ret;
-
-	globalmem_devp = kzalloc(sizeof(struct globalmem_dev), GFP_KERNEL);
+	// globalmem_devp = kzalloc(sizeof(struct globalmem_dev), GFP_KERNEL);
 	if (!globalmem_devp) {
 		ret = -ENOMEM;
 		goto fail_malloc;
 	}
 	// mutex_init(&globalmem_dev->mutex);
 	for(i=0;i<DEVICE_NUM;i++)
-		globalmem_setup_cdev(globalmem_devp+i, i);
+	{
+		globalmem_devp[i] = kzalloc(sizeof(struct globalmem_dev), GFP_KERNEL);
+		if (!globalmem_devp) {
+			ret = -ENOMEM;
+			goto fail_malloc;
+		}
+		globalmem_setup_cdev(globalmem_devp[i], i);
+	}
+		// globalmem_setup_cdev(globalmem_devp+i, i);
 	return 0;
 
  fail_malloc:
@@ -223,14 +237,16 @@ static void __exit globalmem_exit(void)
 {
 	int i;
 	for(i=0;i<DEVICE_NUM;i++)
-	cdev_del(&(globalmem_devp+i)->cdev);
-	kfree(globalmem_devp);
+	{
+		cdev_del(&(globalmem_devp[i])->cdev);
+		kfree(globalmem_devp[i]);
+	}
 	unregister_chrdev_region(MKDEV(globalmem_major, 0), 1);
 }
 module_exit(globalmem_exit);
 
 MODULE_AUTHOR("lxl");
-MODULE_LICENSE("Proprietary");
+MODULE_LICENSE("GPL");
 MODULE_VERSION("1.0");
 MODULE_ALIAS("RAU-r");
-// MODULE_DEVICE_TABLE("vavitel-RAU");
+/*  MODULE_DEVICE_TABLE("vavitel-RAU");  */
